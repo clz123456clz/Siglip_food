@@ -39,89 +39,89 @@ def main():
         print(f"⚠️ No valid checkpoint found. Training from scratch.\n{e}")
         start_epoch, stats = 0, []
 
-        # =========================
-        # 3. Inject LoRA if Starting Fresh
-        # =========================
-        # Number of last encoder layers to apply LoRA (default: 4 if not defined in config)
-        LAST_N = int(config("last_n_layers"))
-        # Linear submodules eligible for LoRA
-        leaf_allow = {"q_proj", "k_proj", "v_proj", "out_proj", "fc1", "fc2"}
+    # =========================
+    # 3. Inject LoRA if Starting Fresh
+    # =========================
+    # Number of last encoder layers to apply LoRA (default: 4 if not defined in config)
+    LAST_N = int(config("last_n_layers"))
+    # Linear submodules eligible for LoRA
+    leaf_allow = {"q_proj", "k_proj", "v_proj", "out_proj", "fc1", "fc2"}
 
-        # ---------------------------------------------------------
-        # Freeze ALL parameters, including heads and logit_scale
-        # ---------------------------------------------------------
-        for n, p in model.named_parameters():
-            p.requires_grad_(False)
+    # ---------------------------------------------------------
+    # Freeze ALL parameters, including heads and logit_scale
+    # ---------------------------------------------------------
+    for n, p in model.named_parameters():
+        p.requires_grad_(False)
 
-        # ---------------------------------------------------------
-        # Helper: find the maximum encoder layer index
-        # ---------------------------------------------------------
-        def _max_layer_index(prefix: str) -> int:
-            """Return the largest layer index under the given prefix (e.g., 'vision_model.encoder.layers.')."""
-            max_idx = -1
-            for name, _ in model.named_modules():
-                if name.startswith(prefix):
-                    try:
-                        idx = int(name.split(prefix, 1)[1].split(".")[0])
-                        max_idx = max(max_idx, idx)
-                    except Exception:
-                        pass
-            return max_idx
+    # ---------------------------------------------------------
+    # Helper: find the maximum encoder layer index
+    # ---------------------------------------------------------
+    def _max_layer_index(prefix: str) -> int:
+        """Return the largest layer index under the given prefix (e.g., 'vision_model.encoder.layers.')."""
+        max_idx = -1
+        for name, _ in model.named_modules():
+            if name.startswith(prefix):
+                try:
+                    idx = int(name.split(prefix, 1)[1].split(".")[0])
+                    max_idx = max(max_idx, idx)
+                except Exception:
+                    pass
+        return max_idx
 
-        V_PREFIX = "vision_model.encoder.layers."
-        T_PREFIX = "text_model.encoder.layers."
-        v_max = _max_layer_index(V_PREFIX)
-        t_max = _max_layer_index(T_PREFIX)
-        if v_max < 0 or t_max < 0:
-            raise RuntimeError("Cannot find encoder layers. Check module names in your SigLIP model.")
+    V_PREFIX = "vision_model.encoder.layers."
+    T_PREFIX = "text_model.encoder.layers."
+    v_max = _max_layer_index(V_PREFIX)
+    t_max = _max_layer_index(T_PREFIX)
+    if v_max < 0 or t_max < 0:
+        raise RuntimeError("Cannot find encoder layers. Check module names in your SigLIP model.")
 
-        # ---------------------------------------------------------
-        # Collect LoRA targets in the last N layers of BOTH encoders
-        # ---------------------------------------------------------
-        target_fullnames = []
-        for name, mod in model.named_modules():
-            if not isinstance(mod, nn.Linear):
-                continue
-            leaf = name.split(".")[-1]
-            if leaf not in leaf_allow:
-                continue
+    # ---------------------------------------------------------
+    # Collect LoRA targets in the last N layers of BOTH encoders
+    # ---------------------------------------------------------
+    target_fullnames = []
+    for name, mod in model.named_modules():
+        if not isinstance(mod, nn.Linear):
+            continue
+        leaf = name.split(".")[-1]
+        if leaf not in leaf_allow:
+            continue
 
-            # Vision encoder layers
-            if name.startswith(V_PREFIX):
-                idx = int(name.split(V_PREFIX, 1)[1].split(".")[0])
-                if idx >= max(0, v_max - LAST_N + 1):
-                    target_fullnames.append(name)
+        # Vision encoder layers
+        if name.startswith(V_PREFIX):
+            idx = int(name.split(V_PREFIX, 1)[1].split(".")[0])
+            if idx >= max(0, v_max - LAST_N + 1):
+                target_fullnames.append(name)
 
-            # Text encoder layers
-            elif name.startswith(T_PREFIX):
-                idx = int(name.split(T_PREFIX, 1)[1].split(".")[0])
-                if idx >= max(0, t_max - LAST_N + 1):
-                    target_fullnames.append(name)
+        # Text encoder layers
+        elif name.startswith(T_PREFIX):
+            idx = int(name.split(T_PREFIX, 1)[1].split(".")[0])
+            if idx >= max(0, t_max - LAST_N + 1):
+                target_fullnames.append(name)
 
-        target_fullnames = sorted(set(target_fullnames))
-        print(f"[LoRA] Encoder-only symmetric targets: {len(target_fullnames)} (last {LAST_N} layers)")
-        for n in target_fullnames[:]:
-            print("   ", n)
+    target_fullnames = sorted(set(target_fullnames))
+    print(f"[LoRA] Encoder-only symmetric targets: {len(target_fullnames)} (last {LAST_N} layers)")
+    for n in target_fullnames[:]:
+        print("   ", n)
 
-        # ---------------------------------------------------------
-        # Inject LoRA ONLY into the selected encoder layers
-        # ---------------------------------------------------------
-        lora_cfg = LoraConfig(
-            r=config("r"),
-            lora_alpha=config("lora_alpha"),
-            lora_dropout=config("lora_dropout"),
-            bias="none",
-            target_modules=target_fullnames,
-        )
-        model = get_peft_model(model, lora_cfg)
+    # ---------------------------------------------------------
+    # Inject LoRA ONLY into the selected encoder layers
+    # ---------------------------------------------------------
+    lora_cfg = LoraConfig(
+        r=config("r"),
+        lora_alpha=config("lora_alpha"),
+        lora_dropout=config("lora_dropout"),
+        bias="none",
+        target_modules=target_fullnames,
+    )
+    model = get_peft_model(model, lora_cfg)
 
-        # ---------------------------------------------------------
-        # Sanity check: print total LoRA layers and trainable params
-        # ---------------------------------------------------------
-        from peft.tuners.lora import LoraLayer
-        hits = [n for n, m in model.named_modules() if isinstance(m, LoraLayer)]
-        print("LoRA layers =", len(hits))
-        model.print_trainable_parameters()  # Should list only LoRA A/B params (heads remain frozen)
+    # ---------------------------------------------------------
+    # Sanity check: print total LoRA layers and trainable params
+    # ---------------------------------------------------------
+    from peft.tuners.lora import LoraLayer
+    hits = [n for n, m in model.named_modules() if isinstance(m, LoraLayer)]
+    print("LoRA layers =", len(hits))
+    model.print_trainable_parameters()  # Should list only LoRA A/B params (heads remain frozen)
 
     # =========================
     # 4. Optimizer & Dataloaders
