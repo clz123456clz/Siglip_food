@@ -25,5 +25,7 @@ check_web_data_format.py
 
 mtf2025_web_images/
 
-siglip_lora_ckpt/
+mtf2025_web_images_en/
+
+*_ckpt/
 

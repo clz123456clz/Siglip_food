@@ -7,6 +7,7 @@ from scipy.sparse import csr_matrix, save_npz
 import os
 from utils import config
 from train import restore_checkpoint
+import json
 
 # === CONFIG ===
 image_dir = "../Test1/imgs"
@@ -40,6 +41,7 @@ model.eval()
 checkpoint_dir = config("checkpoint_dir")
 model, start_epoch, _ = restore_checkpoint(model, checkpoint_dir, True, True, False)
 print(f"✅ Model restored. Resume from epoch {start_epoch}.")
+
 
 # === INFERENCE LOOP ===
 row_indices = []
@@ -90,10 +92,20 @@ for image_start in tqdm(range(0, num_images, image_batch_size), desc="Image Batc
     row_indices.extend(row_indices_batch + image_start)
     col_indices.extend(col_indices_batch)
 
+    # === DEBUG: sample inspection ===
+    if image_start == 0:  
+        sample_ids = [0, 1, 2, 3, 4] 
+        for sid in sample_ids:
+            topk_cols = topk_indices[sid].cpu().tolist()
+            topk_scores = probs[sid, topk_cols].cpu().tolist()
+            print(f"\n🖼️ Image #{image_start + sid}:")
+            for rank, (col, score) in enumerate(zip(topk_cols, topk_scores), start=1):
+                print(f"  #{rank:<2} caption_idx={col:<4} | score={score:.4f} | text='{all_captions[col]}'")
+
 # === BUILD SPARSE MATRIX ===
 data = np.ones(len(row_indices), dtype=int)
 sparse_matrix = csr_matrix((data, (row_indices, col_indices)), shape=(num_images, num_captions))
 
 # === SAVE OUTPUT ===
-save_npz("./results/sigliplarge384_multi_lora1.npz", sparse_matrix)
+save_npz("./results/sigliplarge384_multi_lora_V_l4_qv.npz", sparse_matrix)
 print("✅ Saved sparse matrix.")

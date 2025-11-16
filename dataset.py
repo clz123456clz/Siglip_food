@@ -3,8 +3,14 @@ import hashlib
 from torch.utils.data import DataLoader
 import webdataset as wds
 from transformers import AutoProcessor
+import random, torch, numpy as np
+from utils import SEED
 
 
+def seed_worker(worker_id):
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
 
 def extract_img_caption(sample):
     """
@@ -68,6 +74,61 @@ def _make_split_filters(train_ratio: float):
 
     return filter_train, filter_val
 
+def get_train_val_datasets(
+    tr_val_ratio: float,
+    shards_glob: str = "mtf2025_web_images/*.tar",
+    shuffle_buffer: int = 1000,
+) -> tuple[wds.WebDataset, wds.WebDataset]:
+    """
+    Load multiple .tar shards (WebDataset), deterministically split them into train/validation sets,
+    and return two WebDataset objects.
+
+    Args:
+        tr_val_ratio (float): Proportion of data used for training (0-1). 
+            For example, 0.95 means 95% training and 5% validation.
+        shards_glob (str): Glob pattern pointing to the .tar shards to load.
+        shuffle_buffer (int): Buffer size for sample-level shuffling.
+
+    Returns:
+        tuple[wds.WebDataset, wds.WebDataset]: 
+            A pair of (train_dataset, val_dataset).
+    """
+ 
+    shards = sorted(glob.glob(shards_glob))
+    if len(shards) == 0:
+        raise FileNotFoundError(f"No .tar shards found by glob: {shards_glob}")
+    print(f"[dataset] found {len(shards)} shards, e.g. {shards[:3]} ...")
+
+    f_train, f_val = _make_split_filters(tr_val_ratio)
+
+    base_kwargs = dict(
+        handler=wds.warn_and_continue,  
+        shardshuffle=True             
+    )
+
+    # === Train Dataset ===
+    train_ds = (
+        wds.WebDataset(shards, **base_kwargs)
+        .select(f_train)               
+        .shuffle(shuffle_buffer, initial=SEED)        
+        .decode("pil")
+        .map(extract_img_caption)
+        .select(lambda x: x[0] is not None and isinstance(x[1], str) and len(x[1]) > 0)
+    )
+
+    # === Val Dataset ===
+    val_ds = (
+        wds.WebDataset(shards, **base_kwargs)
+        .select(f_val)
+        .shuffle(shuffle_buffer // 4, initial=SEED) 
+        .decode("pil")
+        .map(extract_img_caption)
+        .select(lambda x: x[0] is not None and isinstance(x[1], str) and len(x[1]) > 0)
+    )
+
+    print("[dataset] train/val datasets ready.")
+    return train_ds, val_ds 
+
 
 
 # ========== main：return train / val two DataLoader ==========
@@ -96,12 +157,8 @@ def get_train_val_loaders(
         tuple[DataLoader, DataLoader]: 
             A pair of (train_loader, val_loader).
     """
- 
-    shards = sorted(glob.glob(shards_glob))
-    if len(shards) == 0:
-        raise FileNotFoundError(f"No .tar shards found by glob: {shards_glob}")
-    print(f"[dataset] found {len(shards)} shards, e.g. {shards[:3]} ...")
-
+    g = torch.Generator()
+    g.manual_seed(SEED)
     processor = AutoProcessor.from_pretrained(processor_name)
 
     def collate(batch):
@@ -127,32 +184,11 @@ def get_train_val_loaders(
         return enc
 
 
-    f_train, f_val = _make_split_filters(tr_val_ratio)
-
-
-    base_kwargs = dict(
-        handler=wds.warn_and_continue,  
-        shardshuffle=True             
-    )
-
-    # === Train Dataset ===
-    train_ds = (
-        wds.WebDataset(shards, **base_kwargs)
-        .select(f_train)               
-        .shuffle(shuffle_buffer)        
-        .decode("pil")
-        .map(extract_img_caption)
-        .select(lambda x: x[0] is not None and isinstance(x[1], str) and len(x[1]) > 0)
-    )
-
-    # === Val Dataset ===
-    val_ds = (
-        wds.WebDataset(shards, **base_kwargs)
-        .select(f_val)
-        .shuffle(shuffle_buffer // 4) 
-        .decode("pil")
-        .map(extract_img_caption)
-        .select(lambda x: x[0] is not None and isinstance(x[1], str) and len(x[1]) > 0)
+    # === Train/Val Dataset ===
+    train_ds, val_ds = get_train_val_datasets(
+        tr_val_ratio=tr_val_ratio,
+        shards_glob=shards_glob,
+        shuffle_buffer=shuffle_buffer,
     )
 
     # DataLoader
@@ -163,6 +199,8 @@ def get_train_val_loaders(
         collate_fn=collate,
         pin_memory=True,
         drop_last=True,   
+        worker_init_fn=seed_worker,
+        generator=g,
     )
 
     val_loader = DataLoader(
@@ -172,6 +210,8 @@ def get_train_val_loaders(
         collate_fn=collate,
         pin_memory=True,
         drop_last=False,
+        worker_init_fn=seed_worker,
+        generator=g,
     )
 
     print("[dataset] train/val loaders ready.")

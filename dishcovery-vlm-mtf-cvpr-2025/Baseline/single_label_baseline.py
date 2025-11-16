@@ -91,13 +91,22 @@ for image_start in tqdm(range(0, num_images, image_batch_size), desc="Image Batc
         row_idx = image_start + valid_indices[i]
         row_indices.append(row_idx)
         col_indices.append(col_idx)
+    
+        # === DEBUG: sample inspection (for single-label case) ===
+    if image_start == 0:  
+        sample_ids = [0, 1, 2, 3, 4] 
+        for sid in sample_ids:
+            col = int(col_indices[sid])  # single caption index
+            score = float(probs[sid, col].cpu())  # score of this caption
+            print(f"\n🖼️ Image #{image_start + sid}:")
+            print(f"  caption_idx={col:<4} | score={score:.4f} | text='{all_captions[col]}'")
 
-# === BUILD SPARSE MATRIX ===
-data = np.ones(len(row_indices), dtype=int)
-sparse_matrix = csr_matrix((data, (row_indices, col_indices)), shape=(num_images, num_captions))
+# # === BUILD SPARSE MATRIX ===
+# data = np.ones(len(row_indices), dtype=int)
+# sparse_matrix = csr_matrix((data, (row_indices, col_indices)), shape=(num_images, num_captions))
 
 
-# === SAVE OUTPUT ===
-save_npz("./results/sigliplarge384_single_baseline.npz", sparse_matrix)
-print("✅ Saved single-label sparse matrix.")
+# # === SAVE OUTPUT ===
+# save_npz("./results/sigliplarge384_single_baseline.npz", sparse_matrix)
+# print("✅ Saved single-label sparse matrix.")
 

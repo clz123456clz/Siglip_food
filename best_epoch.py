@@ -21,23 +21,8 @@ def main():
         )
         stats = meta.get("stats", [])
         val_losses = [row["val_loss"] for row in stats] 
-        best_epoch = min(range(len(val_losses)), key=lambda e: val_losses[e])
+        best_epoch = min(range(len(val_losses)), key=lambda e: val_losses[e]) 
 
-
-    # print(f"Best epoch (min val loss): {best_epoch}")
-    # print(f"Val   Loss: {stats[best_epoch]['val_loss']}")
-    # print(f"i2t_MRR:    {stats[best_epoch]['i2t_MRR']}")
-    # print(f"t2i_MRR:    {stats[best_epoch]['t2i_MRR']}")
-    # print(f"t2i_MedR:    {stats[best_epoch]['t2i_MedR']}")
-
-
-    # ks = (1, 5, 10)
-
-    # for k in ks:
-    #     t2i_R_k = f"t2i_R@{k}"
-    #     print(f"{t2i_R_k}:    {stats[best_epoch][t2i_R_k]}")
-    #     i2t_R_k = f"i2t_R@{k}"
-    #     print(f"{i2t_R_k}:    {stats[best_epoch][i2t_R_k]}")
 
     print("\n" + "=" * 50)
     print(f"Best Epoch Summary")

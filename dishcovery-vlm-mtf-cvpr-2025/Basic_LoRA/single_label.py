@@ -7,7 +7,7 @@ from scipy.sparse import csr_matrix, save_npz
 import os
 from utils import config
 from train import restore_checkpoint
-
+import json
 
 # === CONFIG ===
 image_dir = "../Test2/imgs"
@@ -19,9 +19,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
  # === LOAD CAPTIONS ===
 with open(caption_file, "r") as f:
-    all_captions = [line.strip() for line in f if line.strip()]
+    all_captions = json.load(f)
 num_captions = len(all_captions)
-print(f"✅ Loaded {num_captions} captions.")
+print(f"✅ Loaded {num_captions} captions.")    
 
 # === LOAD IMAGE PATHS ===
 with open(image_list_file, "r") as f:
@@ -97,12 +97,20 @@ for image_start in tqdm(range(0, num_images, image_batch_size), desc="Image Batc
         row_indices.append(row_idx)
         col_indices.append(col_idx)
 
+    # === DEBUG: sample inspection (for single-label case) ===
+    if image_start == 0:  
+        sample_ids = [0, 1, 2, 3, 4] 
+        for sid in sample_ids:
+            col = int(col_indices[sid])  # single caption index
+            score = float(probs[sid, col].cpu())  # score of this caption
+            print(f"\n🖼️ Image #{image_start + sid}:")
+            print(f"  caption_idx={col:<4} | score={score:.4f} | text='{all_captions[col]}'")
 # === BUILD SPARSE MATRIX ===
 data = np.ones(len(row_indices), dtype=int)
 sparse_matrix = csr_matrix((data, (row_indices, col_indices)), shape=(num_images, num_captions))
 
 
 # === SAVE OUTPUT ===
-save_npz("./results/sigliplarge384_single_lora1.npz", sparse_matrix)
+save_npz("./results/sigliplarge384_single_lora_V_l4_qv.npz", sparse_matrix)
 print("✅ Saved single-label sparse matrix.")
 
