@@ -16,29 +16,36 @@ def extract_img_caption(sample):
     """
     Return a tuple (PIL.Image, str_caption).
 
-    Given a WebDataset sample, prefer the caption from sample["json"]["caption"] if present
-    and non-empty; otherwise fall back to sample["txt"]. The returned caption is guaranteed
-    to be a clean `str` (never None).
+    Prefer the translated English caption from sample["json"]["caption_en"] if present
+    and non-empty; otherwise fall back to sample["json"]["caption"], then sample["txt"].
+    The returned caption is guaranteed to be a clean `str` (never None).
     """
-
     img = sample.get("jpg") or sample.get("png")
-    cap = None
+    cap = ""
 
     js = sample.get("json")
-    if isinstance(js, dict):
-        c = js.get("caption")
-        if isinstance(c, str) and c.strip():
-            cap = c
 
-    if cap is None:
+    # After .decode(), 'json' entries with extension 'json' should be auto-decoded.
+    if isinstance(js, dict):
+        # 1) Prefer translated English caption
+        c_en = js.get("caption_en")
+        if isinstance(c_en, str) and c_en.strip():
+            cap = c_en.strip()
+        else:
+            # 2) Fallback to original caption if exists
+            c = js.get("caption")
+            if isinstance(c, str) and c.strip():
+                cap = c.strip()
+
+    # 3) Final fallback: raw txt field
+    if not cap:
         cap_raw = sample.get("txt")
         if isinstance(cap_raw, bytes):
             cap = cap_raw.decode("utf-8", errors="ignore")
         elif isinstance(cap_raw, str):
             cap = cap_raw
-
-    if cap is None:
-        cap = "" 
+        else:
+            cap = ""
 
     cap = cap.strip()
     return img, cap
@@ -76,7 +83,7 @@ def _make_split_filters(train_ratio: float):
 
 def get_train_val_datasets(
     tr_val_ratio: float,
-    shards_glob: str = "mtf2025_web_images/*.tar",
+    shards_glob: str = "mtf2025_web_images_en/*.tar",
     shuffle_buffer: int = 1000,
 ) -> tuple[wds.WebDataset, wds.WebDataset]:
     """
@@ -135,7 +142,7 @@ def get_train_val_datasets(
 def get_train_val_loaders(
     batch_size: int,
     tr_val_ratio: float,
-    shards_glob: str = "mtf2025_web_images/*.tar",
+    shards_glob: str = "mtf2025_web_images_en/*.tar",
     num_workers: int = 1,
     processor_name: str = "google/siglip-large-patch16-384",
     shuffle_buffer: int = 1000,

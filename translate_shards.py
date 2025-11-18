@@ -5,13 +5,13 @@ import json
 import webdataset as wds
 from tqdm import tqdm
 
-from translator import translate_batch_to_english_nllb
+from translator import translate_batch_to_english
 
 IN_DIR = "mtf2025_web_images"       
 OUT_DIR = "mtf2025_web_images_en"    
 os.makedirs(OUT_DIR, exist_ok=True)
 
-BATCH_SIZE = 16
+BATCH_SIZE = 64
 
 
 def extract_caption_and_json(sample):
@@ -62,7 +62,9 @@ def process_shard(in_tar: str, out_tar: str):
             return
 
         # Run batched translation
-        caps_en = translate_batch_to_english_nllb(buffer_caps)
+        caps_en = translate_batch_to_english(buffer_caps)
+
+        print("[DEBUG] EXAMPLE:", buffer_caps[0], "###", caps_en[0])
 
         # Write all buffered samples to output tar
         for sample, js, cap_en in zip(buffer_samples, buffer_jsons, caps_en):
@@ -71,38 +73,33 @@ def process_shard(in_tar: str, out_tar: str):
                 sample["json"] = json.dumps(js, ensure_ascii=False)
             sink.write(sample)
 
-        # Clear buffers
         buffer_samples.clear()
         buffer_caps.clear()
         buffer_jsons.clear()
 
-    for sample in dataset:
+    for sample in tqdm(dataset, desc=f"{os.path.basename(in_tar)}", unit="sample"):
         cap, js = extract_caption_and_json(sample)
 
-        # Always append, but let is_valid_caption / batch translator decide if it is useful
         if isinstance(cap, str) and cap.strip():
             buffer_samples.append(sample)
             buffer_caps.append(cap)
             buffer_jsons.append(js)
         else:
-            # No caption → directly write sample unchanged
             sink.write(sample)
             continue
 
-        # If buffer is full, process this batch
         if len(buffer_samples) >= BATCH_SIZE:
             flush_buffer()
 
-    # Flush any remaining samples in the buffer
     flush_buffer()
-
     sink.close()
 
 
 def main():
-    shard_paths = sorted(glob.glob(os.path.join(IN_DIR, "*.tar")))
+    shard_paths = sorted(glob.glob(os.path.join(IN_DIR, "00000.tar")))
     print(f"Found {len(shard_paths)} shards")
-    for in_tar in tqdm(shard_paths):
+
+    for in_tar in tqdm(shard_paths, desc="Shards", unit="shard"):
         base = os.path.basename(in_tar)
         out_tar = os.path.join(OUT_DIR, base)
         print(f"\nPROCESS {in_tar} -> {out_tar}")
